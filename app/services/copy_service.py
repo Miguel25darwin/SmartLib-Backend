@@ -1,0 +1,74 @@
+"""Couche service pour l'entite Copy (exemplaires physiques) et le scan QR Code."""
+
+from sqlalchemy.orm import Session
+
+from app.models.book import Book
+from app.models.copy import Copy
+from app.schemas.copy import CopyCreate, CopyUpdate
+
+
+class CopyNotFoundError(Exception):
+    pass
+
+
+class QrCodeNotFoundError(Exception):
+    """
+    Levee quand le QR Code scanne ne correspond a aucun exemplaire connu.
+    Cas reel frequent (etiquette abimee, exemplaire retire du catalogue) :
+    message distinct de CopyNotFoundError pour un diagnostic clair cote bibliothecaire.
+    """
+    pass
+
+
+def create_copy(db: Session, copy_in: CopyCreate) -> Copy:
+    """
+    Cree un exemplaire. Le qr_code est genere automatiquement par le modele
+    (default=generate_qr_identifier) : c'est cette valeur qu'il faudra
+    imprimer et coller sur le livre physique, conformement au workflow
+    "Consignes de Gestion du catalogue" (creation -> generation QR -> impression/collage).
+    """
+    copy = Copy(**copy_in.model_dump())
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+    return copy
+
+
+def list_copies_for_book(db: Session, book_id: int) -> list[Copy]:
+    return db.query(Copy).filter(Copy.book_id == book_id).all()
+
+
+def update_copy(db: Session, copy_id: int, copy_update: CopyUpdate) -> Copy:
+    copy = db.get(Copy, copy_id)
+    if copy is None:
+        raise CopyNotFoundError(f"Exemplaire id={copy_id} introuvable.")
+    update_data = copy_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(copy, field, value)
+    db.commit()
+    db.refresh(copy)
+    return copy
+
+
+def scan_qr_code(db: Session, qr_code: str) -> dict:
+    """
+    Resout un QR Code scanne vers les informations de l'exemplaire + du livre.
+    C'est le point d'entree utilise par emprunt/retour/inventaire par scan (etape 14).
+    """
+    copy = db.query(Copy).filter(Copy.qr_code == qr_code).first()
+    if copy is None:
+        raise QrCodeNotFoundError(f"Aucun exemplaire ne correspond au QR Code '{qr_code}'.")
+
+    book = db.get(Book, copy.book_id)
+    title = (book.title_fr or book.title_en or "Sans titre") if book else "Livre introuvable"
+    author = book.author if book else "Inconnu"
+
+    return {
+        "copy_id": copy.id,
+        "qr_code": copy.qr_code,
+        "status": copy.status,
+        "location": copy.location,
+        "book_id": copy.book_id,
+        "book_title": title,
+        "book_author": author,
+    }

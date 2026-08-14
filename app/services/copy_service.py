@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.book import Book
 from app.models.copy import Copy
 from app.schemas.copy import CopyCreate, CopyUpdate
+from app.models.enums import CopyStatus
 
 
 class CopyNotFoundError(Exception):
@@ -18,7 +19,9 @@ class QrCodeNotFoundError(Exception):
     message distinct de CopyNotFoundError pour un diagnostic clair cote bibliothecaire.
     """
     pass
-
+class CopyNotRepairableError(Exception):
+    """Levee quand on tente de reparer un exemplaire qui n'est pas dans l'etat 'damaged'."""
+    pass
 
 def create_copy(db: Session, copy_in: CopyCreate) -> Copy:
     """
@@ -72,3 +75,39 @@ def scan_qr_code(db: Session, qr_code: str) -> dict:
         "book_title": title,
         "book_author": author,
     }
+def mark_copy_as_lost(db: Session, copy_id: int) -> Copy:
+    """
+    Marque un exemplaire comme perdu (retire definitivement du catalogue actif,
+    conforme au Cahier d'Architecture §4.1 - statut 'Perdu').
+    Si un emprunt actif existe sur cet exemplaire, il n'est PAS automatiquement
+    cloture ici : une perte concerne generalement un exemplaire deja emprunte
+    et jamais retourne, la gestion de l'emprunt associe (facturation, etc.)
+    reste une decision bibliothecaire distincte, hors du perimetre de cette action.
+    """
+    copy = db.get(Copy, copy_id)
+    if copy is None:
+        raise CopyNotFoundError(f"Exemplaire id={copy_id} introuvable.")
+    copy.status = CopyStatus.LOST
+    db.commit()
+    db.refresh(copy)
+    return copy
+
+
+def mark_copy_as_repaired(db: Session, copy_id: int) -> Copy:
+    """
+    Remet un exemplaire endommage en circulation (statut -> available).
+    Refuse l'operation si l'exemplaire n'est pas actuellement 'damaged',
+    pour eviter de rendre disponible par erreur un exemplaire emprunte ou perdu.
+    """
+    copy = db.get(Copy, copy_id)
+    if copy is None:
+        raise CopyNotFoundError(f"Exemplaire id={copy_id} introuvable.")
+    if copy.status != CopyStatus.DAMAGED:
+        raise CopyNotRepairableError(
+            f"Exemplaire id={copy_id} n'est pas endommage (statut actuel : {copy.status.value}), "
+            "impossible de le marquer comme repare."
+        )
+    copy.status = CopyStatus.AVAILABLE
+    db.commit()
+    db.refresh(copy)
+    return copy

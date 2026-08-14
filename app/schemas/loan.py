@@ -45,7 +45,19 @@ class LoanRead(BaseModel):
     due_date: datetime
     returned_at: datetime | None
     status: LoanStatus
+class LoanRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
+    id: uuid.UUID
+    user_id: uuid.UUID
+    copy_id: int | None
+    digital_resource_id: int | None
+    book_title: str | None = None
+    user_name: str | None = None
+    borrowed_at: datetime
+    due_date: datetime
+    returned_at: datetime | None
+    status: LoanStatus
 
 class LoanBorrowByScan(BaseModel):
     """
@@ -61,3 +73,26 @@ class LoanReturnByScan(BaseModel):
     """Payload de retour par scan du QR Code de l'exemplaire (sans besoin de connaitre le loan_id)."""
 
     qr_code: str = Field(min_length=1, max_length=20)
+
+
+class LoanCreateAdmin(BaseModel):
+    """
+    Payload d'emprunt manuel cree par un bibliothecaire/admin pour un utilisateur
+    donne (pret assiste classique, sans scan QR). Exactement un des deux champs
+    copy_id / digital_resource_id doit etre fourni. due_date est optionnelle :
+    si absente, la duree standard configuree (settings.LOAN_DURATION_DAYS) s'applique.
+    """
+    user_id: uuid.UUID
+    copy_id: int | None = Field(default=None)
+    digital_resource_id: int | None = Field(default=None)
+    due_date: datetime | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def check_exactly_one_target(self) -> "LoanCreateAdmin":
+        has_copy = self.copy_id is not None
+        has_digital = self.digital_resource_id is not None
+        if has_copy == has_digital:
+            raise ValueError(
+                "Fournir exactement un des deux champs : copy_id OU digital_resource_id."
+            )
+        return self

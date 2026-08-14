@@ -62,3 +62,13 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+def list_users(db: Session, role_filter: str | None = None, skip: int = 0, limit: int = 50) -> list[User]:
+    """
+    Liste tous les utilisateurs, avec filtre optionnel par role.
+    Reserve bibliothecaire/admin (donnee sensible : cartes membres, statut de compte).
+    """
+    query = db.query(User)
+    if role_filter is not None:
+        query = query.filter(User.role == role_filter)
+    return query.order_by(User.full_name).offset(skip).limit(limit).all()

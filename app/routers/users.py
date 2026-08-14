@@ -7,6 +7,8 @@ from app.core.deps import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.user import User
+from app.models.enums import UserRole as UserRoleEnum
+from app.services.user_service import list_users
 from app.schemas.user import UserCardScanResult, UserRead, UserUpdate
 from app.services.user_service import UserNotFoundError, get_user_by_card_number
 
@@ -52,4 +54,15 @@ def scan_user_card(card_number: str, db: Session = Depends(get_db)) -> UserCardS
         return get_user_by_card_number(db, card_number)
     except UserNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
+@router.get("", response_model=list[UserRead], dependencies=[Depends(LIBRARIAN_OR_ADMIN)])
+def list_all_users(
+    role: UserRoleEnum | None = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+) -> list[UserRead]:
+    """
+    Liste tous les utilisateurs du systeme, avec filtre optionnel par role
+    et pagination. Reserve bibliothecaire/admin.
+    """
+    return list_users(db, role_filter=role.value if role else None, skip=skip, limit=limit)

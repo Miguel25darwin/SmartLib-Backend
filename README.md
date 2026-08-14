@@ -76,6 +76,28 @@ La migration Alembic est appliquée automatiquement au démarrage du conteneur `
 
 ---
 
+## Peupler la base avec des donnees de demonstration
+
+Cree des comptes de test (un par role) et un catalogue de 5 livres avec exemplaires :
+
+```bash
+python scripts/seed.py
+```
+
+Mot de passe commun a tous les comptes crees : SmartLib2026!
+
+Comptes crees :
+- admin@smartlib.cm (admin)
+- bibliothecaire@smartlib.cm (librarian)
+- enseignant@smartlib.cm (lecturer)
+- personnel@smartlib.cm (staff)
+- etudiant1@smartlib.cm, etudiant2@smartlib.cm, etudiant3@smartlib.cm (student)
+
+Le script est idempotent sur les comptes (relancer ne duplique pas les utilisateurs
+existants) mais ajoute toujours de nouveaux livres si relance plusieurs fois.
+
+---
+
 ## Lancer les tests
 
 Nécessite une base PostgreSQL de test nommée `smartlib_test_db` :

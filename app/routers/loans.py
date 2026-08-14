@@ -15,6 +15,9 @@ from app.models.enums import LoanStatus, UserRole
 from app.models.user import User
 from app.schemas.loan import LoanCreate, LoanRead
 from app.schemas.loan import LoanBorrowByScan, LoanReturnByScan
+from app.schemas.loan import LoanCreateAdmin
+from app.services.loan_service import create_loan_for_user
+from app.services.user_service import UserNotFoundError as _UserNotFoundErrorAdmin
 from app.services.loan_service import borrow_by_scan, return_by_scan
 from app.services.user_service import UserNotFoundError
 
@@ -53,7 +56,41 @@ def borrow(
     except CopyNotAvailableError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+@router.post(
+    "/admin",
+    response_model=LoanRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(LIBRARIAN_OR_ADMIN)],
+)
+def borrow_for_user(payload: LoanCreateAdmin, db: Session = Depends(get_db)) -> LoanRead:
+    """
+    Emprunt manuel cree par un bibliothecaire/admin pour un utilisateur donne
+    (pret assiste au guichet). Applique les memes regles metier que l'emprunt
+    en libre-service (quota par role, disponibilite de l'exemplaire).
+    """
+    from app.models.user import User as _UserModel
 
+    target_user = db.get(_UserModel, payload.user_id)
+    if target_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Utilisateur id={payload.user_id} introuvable.",
+        )
+
+    try:
+        return create_loan_for_user(
+            db,
+            target_user,
+            copy_id=payload.copy_id,
+            digital_resource_id=payload.digital_resource_id,
+            due_date_override=payload.due_date,
+        )
+    except LoanQuotaExceededError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (CopyNotFoundError, DigitalResourceNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CopyNotAvailableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 @router.get("/me", response_model=list[LoanRead])
 def my_loans(
     current_user: User = Depends(get_current_user),

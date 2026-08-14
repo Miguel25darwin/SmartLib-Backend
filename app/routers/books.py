@@ -30,6 +30,13 @@ router = APIRouter(prefix="/books", tags=["catalogue"])
 LIBRARIAN_OR_ADMIN = require_roles(UserRole.LIBRARIAN, UserRole.ADMIN)
 ADMIN_ONLY = require_roles(UserRole.ADMIN)
 
+from app.services.copy_service import (
+    CopyNotRepairableError,
+    mark_copy_as_lost,
+    mark_copy_as_repaired,
+)
+
+
 
 @router.get("", response_model=list[BookRead])
 def list_books(
@@ -112,3 +119,26 @@ def add_copy(book_id: int, copy_in: CopyCreate, db: Session = Depends(get_db)) -
 def get_book_copies(book_id: int, db: Session = Depends(get_db)) -> list[CopyRead]:
     """Liste des exemplaires d'un livre donné, avec leur statut."""
     return list_copies_for_book(db, book_id)
+
+@router.put("/copies/{copy_id}/lost", response_model=CopyRead,
+            dependencies=[Depends(LIBRARIAN_OR_ADMIN)], tags=["catalogue"])
+def report_copy_lost(copy_id: int, db: Session = Depends(get_db)) -> CopyRead:
+    """Marque un exemplaire comme perdu (bibliothecaire / admin)."""
+    from app.services.copy_service import CopyNotFoundError as _CopyNotFoundError
+    try:
+        return mark_copy_as_lost(db, copy_id)
+    except _CopyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put("/copies/{copy_id}/repair", response_model=CopyRead,
+            dependencies=[Depends(LIBRARIAN_OR_ADMIN)], tags=["catalogue"])
+def report_copy_repaired(copy_id: int, db: Session = Depends(get_db)) -> CopyRead:
+    """Remet un exemplaire endommage en circulation (bibliothecaire / admin)."""
+    from app.services.copy_service import CopyNotFoundError as _CopyNotFoundError
+    try:
+        return mark_copy_as_repaired(db, copy_id)
+    except _CopyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CopyNotRepairableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc 

@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 # --- Règles métier emprunts ---
     LOAN_DURATION_DAYS: int = 14
     # --- CORS ---
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8080", "http://localhost:5000"]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

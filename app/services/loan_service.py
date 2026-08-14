@@ -20,6 +20,7 @@ from app.models.enums import LOAN_LIMITS_BY_ROLE, CopyStatus, LoanStatus
 from app.models.loan import Loan
 from app.models.user import User
 from app.models.user import User as UserModel
+from app.models.book import Book
 from app.schemas.loan import LoanCreate
 
 
@@ -49,7 +50,29 @@ class LoanAlreadyReturnedError(Exception):
 
 class NotLoanOwnerError(Exception):
     pass
+def _enrich_loan(db: Session, loan: Loan) -> Loan:
+    """Attache dynamiquement book_title et user_name a l'objet loan (attributs non-colonnes)."""
+    user = db.get(UserModel, loan.user_id)
+    loan.user_name = user.full_name if user else None
 
+    if loan.copy_id is not None:
+        copy = db.get(Copy, loan.copy_id)
+        if copy is not None:
+            book = db.get(Book, copy.book_id)
+            loan.book_title = (book.title_fr or book.title_en) if book else None
+        else:
+            loan.book_title = None
+    elif loan.digital_resource_id is not None:
+        resource = db.get(DigitalResource, loan.digital_resource_id)
+        if resource is not None:
+            book = db.get(Book, resource.book_id)
+            loan.book_title = (book.title_fr or book.title_en) if book else None
+        else:
+            loan.book_title = None
+    else:
+        loan.book_title = None
+
+    return loan
 
 def _count_active_loans(db: Session, user_id: uuid.UUID) -> int:
     return (
@@ -106,7 +129,7 @@ def create_loan(db: Session, current_user: User, loan_in: LoanCreate) -> Loan:
     db.add(loan)
     db.commit()
     db.refresh(loan)
-    return loan
+    return _enrich_loan(db, loan)
 
 
 def return_loan(db: Session, loan_id: uuid.UUID, current_user: User) -> Loan:
@@ -137,17 +160,18 @@ def return_loan(db: Session, loan_id: uuid.UUID, current_user: User) -> Loan:
 
     db.commit()
     db.refresh(loan)
-    return loan
+    return _enrich_loan(db, loan)
 
 
 def list_loans_for_user(db: Session, user_id: uuid.UUID) -> list[Loan]:
     """Emprunts en cours + historique de l'utilisateur (GET /loans/me)."""
-    return (
+    loans = (
         db.query(Loan)
         .filter(Loan.user_id == user_id)
         .order_by(Loan.borrowed_at.desc())
         .all()
     )
+    return [_enrich_loan(db, loan) for loan in loans]
 
 
 def list_all_loans(db: Session, status_filter: LoanStatus | None = None) -> list[Loan]:
@@ -155,7 +179,8 @@ def list_all_loans(db: Session, status_filter: LoanStatus | None = None) -> list
     query = db.query(Loan)
     if status_filter is not None:
         query = query.filter(Loan.status == status_filter)
-    return query.order_by(Loan.borrowed_at.desc()).all()
+    loans = query.order_by(Loan.borrowed_at.desc()).all()
+    return [_enrich_loan(db, loan) for loan in loans]
 
 
 def borrow_by_scan(db: Session, card_number: str, qr_code: str) -> Loan:
@@ -172,7 +197,8 @@ def borrow_by_scan(db: Session, card_number: str, qr_code: str) -> Loan:
     if copy is None:
         raise CopyNotFoundError(f"Aucun exemplaire ne correspond au QR Code '{qr_code}'.")
 
-    return create_loan(db, user, LoanCreate(copy_id=copy.id))
+    loan = create_loan(db, user, LoanCreate(copy_id=copy.id))
+    return _enrich_loan(db, loan)
 
 
 def return_by_scan(db: Session, qr_code: str) -> Loan:
@@ -203,4 +229,32 @@ def return_by_scan(db: Session, qr_code: str) -> Loan:
     db.commit()
     db.refresh(active_loan)
 
-    return active_loan
+    return _enrich_loan(db, active_loan)
+def create_loan_for_user(
+    db: Session,
+    target_user: "UserModel",
+    copy_id: int | None,
+    digital_resource_id: int | None,
+    due_date_override: datetime | None = None,
+) -> Loan:
+    """
+    Cree un emprunt pour un utilisateur cible, au nom d'un bibliothecaire/admin
+    (pret assiste au guichet - POST /loans/admin). Reutilise les memes regles
+    metier que create_loan (quota par role, disponibilite) pour ne jamais les
+    dupliquer, avec une seule difference : la date d'echeance peut etre
+    surchargee manuellement par le bibliothecaire (due_date_override).
+    """
+    from app.schemas.loan import LoanCreate
+
+    loan = create_loan(
+        db,
+        target_user,
+        LoanCreate(copy_id=copy_id, digital_resource_id=digital_resource_id),
+    )
+
+    if due_date_override is not None:
+        loan.due_date = due_date_override
+        db.commit()
+        db.refresh(loan)
+
+    return _enrich_loan(db, loan)

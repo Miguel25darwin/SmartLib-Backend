@@ -7,9 +7,7 @@ services:
     startCommand: ./start.sh
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: smartlib-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: JWT_ALGORITHM
@@ -28,9 +26,3 @@ services:
         value: /api/v1
       - key: CORS_ORIGINS
         value: '["https://smartlib.vercel.app","http://localhost:3000"]'
-
-  - type: postgresql
-    name: smartlib-db
-    plan: free
-    databaseName: smartlib_db
-    user: smartlib_user

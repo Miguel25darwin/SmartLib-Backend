@@ -76,3 +76,18 @@ app.include_router(dewey.router, prefix=settings.API_V1_PREFIX)
 def health_check() -> dict:
     """Verifie que l'API repond (utilise par le monitoring / load balancer)."""
     return {"status": "ok", "app": settings.APP_NAME, "env": settings.APP_ENV}
+
+
+@app.post("/seed", tags=["admin"])
+def run_seed():
+    """Endpoint temporaire — peuple la base avec des comptes de test. A SUPPRIMER APRES USAGE."""
+    from scripts.seed import main as seed_main
+    import io, sys
+    buf = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = buf
+    try:
+        seed_main()
+    finally:
+        sys.stdout = old_stdout
+    return {"status": "ok", "output": buf.getvalue()}

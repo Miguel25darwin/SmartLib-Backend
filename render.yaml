@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: smartlib-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./start.sh
+    envVars:
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES_CAMPUS
+        value: 480
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES_REMOTE
+        value: 120
+      - key: LOAN_DURATION_DAYS
+        value: 14
+      - key: APP_NAME
+        value: SmartLib API
+      - key: APP_ENV
+        value: production
+      - key: API_V1_PREFIX
+        value: /api/v1
+      - key: CORS_ORIGINS
+        value: '["https://smartlib.vercel.app","http://localhost:3000"]'

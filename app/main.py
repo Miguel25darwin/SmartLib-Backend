@@ -5,13 +5,15 @@ Assemble la configuration, le middleware CORS, et les routers versionnes (/api/v
 
 import os
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.session import get_db
 from app.routers import auth, books, catalogue_bulk, dewey, isbn_lookup, loans, reports, users
 
 app = FastAPI(
@@ -79,15 +81,29 @@ def health_check() -> dict:
 
 
 @app.post("/seed", tags=["admin"])
-def run_seed():
-    """Endpoint temporaire — peuple la base avec des comptes de test. A SUPPRIMER APRES USAGE."""
+def run_seed(x_seed_token: str = Header(...), db: Session = Depends(get_db)):
+    """
+    Initialise une base vide avec un jeton secret et une protection idempotente.
+    """
+    if x_seed_token != settings.SEED_SECRET_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Jeton de seed invalide.",
+        )
+
+    from app.models.user import User
+
+    existing_users_count = db.query(User).count()
+    if existing_users_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"La base contient deja {existing_users_count} utilisateur(s) - "
+                "seed refuse pour ne pas dupliquer/ecraser des donnees existantes."
+            ),
+        )
+
     from scripts.seed import main as seed_main
-    import io, sys
-    buf = io.StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        seed_main()
-    finally:
-        sys.stdout = old_stdout
-    return {"status": "ok", "output": buf.getvalue()}
+
+    seed_main()
+    return {"status": "ok", "message": "Seed execute avec succes."}

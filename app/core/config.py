@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "SmartLib API"
     APP_ENV: str = "development"
     API_V1_PREFIX: str = "/api/v1"
+    SEED_SECRET_TOKEN: str = "change-moi-en-production"
 
     # --- Base de données ---
     DATABASE_URL: str

@@ -17,6 +17,7 @@ from app.models.copy import Copy
 from app.models.enums import CopyStatus, LoanStatus
 from app.models.loan import Loan
 from app.models.user import User
+from app.services.loan_service import refresh_overdue_loans
 
 
 def get_most_borrowed_books(db: Session, limit: int = 10) -> list[dict]:
@@ -74,12 +75,8 @@ def get_most_active_users(db: Session, limit: int = 10) -> list[dict]:
 
 
 def get_overdue_stats(db: Session) -> dict:
-    """
-    Statistiques des retards.
-    Un emprunt "actif" dont la due_date est dépassée est compté comme en retard,
-    même si son statut stocké est encore ACTIVE (le job de bascule automatique
-    ACTIVE -> OVERDUE est prévu en Phase 2 / tâche planifiée).
-    """
+    """Statistiques des retards en calculant d'abord les prêts expirés."""
+    refresh_overdue_loans(db)
     now = datetime.now(timezone.utc)
 
     total_active = db.query(Loan).filter(Loan.status == LoanStatus.ACTIVE).count()
@@ -99,6 +96,7 @@ def get_overdue_stats(db: Session) -> dict:
 
 def get_summary(db: Session) -> dict:
     """Tableau de bord général — GET /reports/summary."""
+    refresh_overdue_loans(db)
     total_books = db.query(Book).count()
     total_copies = db.query(Copy).count()
     copies_available = db.query(Copy).filter(Copy.status == CopyStatus.AVAILABLE).count()

@@ -16,6 +16,11 @@ class DigitalResourceCreate(DigitalResourceBase):
     book_id: int
 
 
+class DigitalResourceUpdate(BaseModel):
+    file_url: str | None = Field(default=None, min_length=1, max_length=500)
+    format: DigitalFormat | None = None
+
+
 class DigitalResourceRead(DigitalResourceBase):
     model_config = ConfigDict(from_attributes=True)
 

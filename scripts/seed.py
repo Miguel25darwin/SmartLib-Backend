@@ -42,31 +42,31 @@ BOOKS_TO_SEED = [
     {
         "title_fr": "Introduction a l'Algorithmique", "title_en": "Introduction to Algorithms",
         "author": "T. Cormen", "isbn": "978-2-1000-0001-1", "publisher": "MIT Press",
-        "publication_year": 2022, "dewey_classification": "005.1",
+        "publication_year": 2022,
         "type": BookType.PHYSICAL, "language": LanguagePref.FR, "copies_count": 3,
     },
     {
         "title_fr": "Bases de Donnees Relationnelles", "title_en": "Relational Databases",
         "author": "S. Fotso", "isbn": "978-2-1000-0002-2", "publisher": "Editions ABC",
-        "publication_year": 2023, "dewey_classification": "005.74",
+        "publication_year": 2023,
         "type": BookType.PHYSICAL, "language": LanguagePref.FR, "copies_count": 2,
     },
     {
         "title_fr": "Securite Informatique et Cybersecurite", "title_en": "Cybersecurity Fundamentals",
         "author": "L. Moyou", "isbn": "978-2-1000-0003-3", "publisher": "Editions XYZ",
-        "publication_year": 2026, "dewey_classification": "005.8",
+        "publication_year": 2026,
         "type": BookType.PHYSICAL, "language": LanguagePref.FR, "copies_count": 4,
     },
     {
         "title_fr": "Philosophie des Sciences", "title_en": "Philosophy of Science",
         "author": "M. Ateba", "isbn": "978-2-1000-0004-4", "publisher": "Presses Universitaires",
-        "publication_year": 2021, "dewey_classification": "100",
+        "publication_year": 2021,
         "type": BookType.PHYSICAL, "language": LanguagePref.FR, "copies_count": 2,
     },
     {
         "title_fr": "Introduction a l'Economie", "title_en": "Principles of Economics",
         "author": "R. Nguemo", "isbn": "978-2-1000-0005-5", "publisher": "Editions ABC",
-        "publication_year": 2024, "dewey_classification": "330",
+        "publication_year": 2024,
         "type": BookType.DIGITAL, "language": LanguagePref.FR, "copies_count": 0,
     },
 ]

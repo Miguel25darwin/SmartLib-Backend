@@ -1,4 +1,4 @@
-"""Entite `copies` — exemplaires physiques d'un livre, chacun avec son propre statut et QR Code."""
+"""Entite `copies` — exemplaires physiques d'un livre, chacun avec son propre statut, cote et QR Code."""
 
 import secrets
 from typing import TYPE_CHECKING
@@ -16,11 +16,7 @@ if TYPE_CHECKING:
 
 
 def generate_qr_identifier() -> str:
-    """
-    Genere un identifiant opaque unique pour le QR Code d'un exemplaire.
-    Format : BK-XXXXXXXX (8 caracteres hexadecimaux), conforme a l'exemple
-    du document "Consignes de Gestion du catalogue" (ex: BK-7F92A31C).
-    """
+    """Genere un identifiant opaque unique pour le QR Code d'un exemplaire (ex: BK-7F92A31C)."""
     return f"BK-{secrets.token_hex(4).upper()}"
 
 
@@ -35,9 +31,17 @@ class Copy(Base, TimestampMixin):
     status: Mapped[CopyStatus] = mapped_column(
         SAEnum(CopyStatus, name="copy_status"), nullable=False, default=CopyStatus.AVAILABLE
     )
-    location: Mapped[str | None] = mapped_column(String(100), nullable=True)  # cote / rayon
 
-    # --- Ajout : identifiant QR unique, colle physiquement sur l'exemplaire ---
+    # --- Trois concepts distincts, jamais a confondre ---
+    # location    : ou se trouve physiquement l'exemplaire dans les rayons (ex: "R02-A15")
+    # call_number : la cote de rangement, construite generalement a partir du code Dewey
+    #               + un code auteur + l'annee (ex: "512 DUP 2024"). C'est la convention
+    #               de catalogage qui permet de retrouver un ouvrage dans l'ordre du rayon.
+    # qr_code     : identifiant technique opaque unique, colle physiquement sur l'exemplaire,
+    #               utilise pour le scan (n'a aucune signification bibliographique).
+    location: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    call_number: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+
     qr_code: Mapped[str] = mapped_column(
         String(20), unique=True, index=True, nullable=False, default=generate_qr_identifier
     )
@@ -46,4 +50,4 @@ class Copy(Base, TimestampMixin):
     loans: Mapped[list["Loan"]] = relationship(back_populates="copy")
 
     def __repr__(self) -> str:
-        return f"<Copy id={self.id} book_id={self.book_id} qr={self.qr_code} status={self.status.value}>"
+        return f"<Copy id={self.id} book_id={self.book_id} call_number={self.call_number} qr={self.qr_code}>"

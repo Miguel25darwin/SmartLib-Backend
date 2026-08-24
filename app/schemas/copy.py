@@ -1,3 +1,4 @@
+
 """Schemas Pydantic pour l'entite Copy (exemplaires physiques)."""
 
 from datetime import datetime
@@ -9,17 +10,24 @@ from app.models.enums import CopyStatus
 
 class CopyBase(BaseModel):
     location: str | None = Field(default=None, max_length=100)
+    call_number: str | None = Field(default=None, max_length=50)
 
 
 class CopyCreate(CopyBase):
-    """Payload de creation d'un exemplaire pour un livre donne. Le qr_code est genere par le serveur."""
+    """
+    Payload de creation d'un exemplaire. Le qr_code est genere par le serveur.
+    call_number est optionnel a la creation : si absent, le bibliothecaire peut
+    le renseigner plus tard via une mise a jour (CopyUpdate), une fois la cote
+    definie selon la convention de catalogage de l'etablissement.
+    """
     book_id: int
 
 
 class CopyUpdate(BaseModel):
-    """Mise a jour de statut ou de localisation (bibliothecaire)."""
+    """Mise a jour de statut, localisation ou cote (bibliothecaire)."""
     status: CopyStatus | None = None
     location: str | None = Field(default=None, max_length=100)
+    call_number: str | None = Field(default=None, max_length=50)
 
 
 class CopyRead(CopyBase):
@@ -33,17 +41,14 @@ class CopyRead(CopyBase):
 
 
 class CopyScanResult(BaseModel):
-    """
-    Resultat d'un scan de QR Code (GET /copies/scan/{qr_code}).
-    Contient les infos utiles affichees a l'ecran du bibliothecaire/etudiant
-    juste apres le scan : identite de l'exemplaire + titre + statut.
-    """
+    """Resultat d'un scan de QR Code (GET /copies/scan/{qr_code})."""
     model_config = ConfigDict(from_attributes=True)
 
     copy_id: int
     qr_code: str
     status: CopyStatus
     location: str | None
+    call_number: str | None
     book_id: int
     book_title: str
     book_author: str

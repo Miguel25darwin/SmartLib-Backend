@@ -27,6 +27,34 @@ class UserUpdate(BaseModel):
     language_pref: LanguagePref | None = None
 
 
+class UserUpdateAdmin(BaseModel):
+    """Payload de modification d'un compte par admin ou bibliothécaire."""
+    full_name: str | None = Field(default=None, min_length=2, max_length=150)
+    email: EmailStr | None = None
+    role: UserRole | None = None
+    language_pref: LanguagePref | None = None
+    is_active: bool | None = None
+
+
+class UserAdminUpdate(BaseModel):
+    """Payload de modification d'un compte par un admin/bibliothecaire."""
+    full_name: str | None = Field(default=None, min_length=2, max_length=150)
+    role: UserRole | None = None
+    language_pref: LanguagePref | None = None
+    is_active: bool | None = None
+
+
+class UserChangePassword(BaseModel):
+    current_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordChange(BaseModel):
+    """Payload de changement de mot de passe par l'utilisateur lui-meme."""
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class UserRead(UserBase):
     """Representation renvoyee par l'API (jamais le password_hash)."""
     model_config = ConfigDict(from_attributes=True)

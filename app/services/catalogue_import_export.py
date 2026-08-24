@@ -1,11 +1,6 @@
 """
 Service d'import/export en masse du catalogue (CSV).
-Conforme aux "Consignes de Gestion du catalogue" : "Importation/exportation
-en masse de infos de catalogue aux formats CSV/Excel".
-
-Le format Excel (.xlsx) n'est pas couvert dans cette version — le CSV s'ouvre
-et s'edite nativement dans Excel/LibreOffice, ce qui couvre l'usage reel du
-bibliothecaire sans dependance supplementaire (openpyxl) pour le prototype.
+Conforme aux "Consignes de Gestion du catalogue".
 """
 
 import csv
@@ -14,14 +9,13 @@ import io
 from sqlalchemy.orm import Session
 
 from app.models.book import Book
+from app.models.dewey_classification import DeweyClassification
 from app.models.enums import BookType, LanguagePref
 from app.schemas.import_export import ImportResult, ImportRowError
 
-# Colonnes attendues dans le CSV, dans cet ordre exact pour l'export
-# (l'import accepte l'ordre des colonnes du header, pas une position fixe).
 CSV_FIELDNAMES = [
     "id", "title_fr", "title_en", "author", "isbn",
-    "publisher", "publication_year", "dewey_classification",
+    "publisher", "publication_year", "dewey_code", "dewey_label_fr",
     "type", "language", "cover_url",
 ]
 
@@ -29,16 +23,21 @@ REQUIRED_FIELDS_FOR_IMPORT = ["author", "type"]
 
 
 def export_books_to_csv(db: Session) -> str:
-    """
-    Exporte l'integralite du catalogue au format CSV (chaine de caracteres).
-    Utilise io.StringIO pour construire le CSV en memoire, sans fichier temporaire.
-    """
+    """Exporte l'integralite du catalogue au format CSV, avec le libelle Dewey lisible."""
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=CSV_FIELDNAMES)
     writer.writeheader()
 
     books = db.query(Book).order_by(Book.id).all()
     for book in books:
+        dewey_code = ""
+        dewey_label_fr = ""
+        if book.dewey_id is not None:
+            dewey = db.get(DeweyClassification, book.dewey_id)
+            if dewey is not None:
+                dewey_code = dewey.code
+                dewey_label_fr = dewey.label_fr
+
         writer.writerow({
             "id": book.id,
             "title_fr": book.title_fr or "",
@@ -47,7 +46,8 @@ def export_books_to_csv(db: Session) -> str:
             "isbn": book.isbn or "",
             "publisher": book.publisher or "",
             "publication_year": book.publication_year or "",
-            "dewey_classification": book.dewey_classification or "",
+            "dewey_code": dewey_code,
+            "dewey_label_fr": dewey_label_fr,
             "type": book.type.value,
             "language": book.language.value,
             "cover_url": book.cover_url or "",
@@ -56,12 +56,8 @@ def export_books_to_csv(db: Session) -> str:
     return output.getvalue()
 
 
-def _parse_row(row: dict, row_number: int) -> Book:
-    """
-    Convertit une ligne CSV en instance Book, ou leve ValueError avec un
-    message explicite si la ligne est invalide. Ne touche pas a la base ici :
-    validation pure, la transaction est geree par l'appelant (import_books_from_csv).
-    """
+def _parse_row(db: Session, row: dict, row_number: int) -> Book:
+    """Convertit une ligne CSV en instance Book. dewey_code (si fourni) est resolu vers dewey_id."""
     for field in REQUIRED_FIELDS_FOR_IMPORT:
         if not row.get(field, "").strip():
             raise ValueError(f"Champ obligatoire manquant : '{field}'")
@@ -69,9 +65,7 @@ def _parse_row(row: dict, row_number: int) -> Book:
     try:
         book_type = BookType(row["type"].strip().lower())
     except ValueError as exc:
-        raise ValueError(
-            f"type invalide : '{row['type']}' (attendu : 'physical' ou 'digital')"
-        ) from exc
+        raise ValueError(f"type invalide : '{row['type']}' (attendu : 'physical' ou 'digital')") from exc
 
     language_raw = row.get("language", "fr").strip().lower() or "fr"
     try:
@@ -86,11 +80,13 @@ def _parse_row(row: dict, row_number: int) -> Book:
         except ValueError as exc:
             raise ValueError(f"publication_year invalide : '{row['publication_year']}'") from exc
 
-    dewey = row.get("dewey_classification", "").strip() or None
-    if dewey is not None:
-        prefix = dewey.split(".")[0]
-        if not prefix.isdigit() or not (0 <= int(prefix) <= 999):
-            raise ValueError(f"dewey_classification invalide : '{dewey}'")
+    dewey_id = None
+    dewey_code_raw = row.get("dewey_code", "").strip()
+    if dewey_code_raw:
+        dewey = db.query(DeweyClassification).filter(DeweyClassification.code == dewey_code_raw).first()
+        if dewey is None:
+            raise ValueError(f"dewey_code '{dewey_code_raw}' introuvable dans le referentiel")
+        dewey_id = dewey.id
 
     return Book(
         title_fr=row.get("title_fr", "").strip() or None,
@@ -99,7 +95,7 @@ def _parse_row(row: dict, row_number: int) -> Book:
         isbn=row.get("isbn", "").strip() or None,
         publisher=row.get("publisher", "").strip() or None,
         publication_year=publication_year,
-        dewey_classification=dewey,
+        dewey_id=dewey_id,
         type=book_type,
         language=language,
         cover_url=row.get("cover_url", "").strip() or None,
@@ -107,29 +103,22 @@ def _parse_row(row: dict, row_number: int) -> Book:
 
 
 def import_books_from_csv(db: Session, csv_content: str) -> ImportResult:
-    """
-    Importe des livres en masse depuis un contenu CSV.
-
-    Comportement volontaire : une ligne invalide n'interrompt PAS tout l'import.
-    Elle est consignee dans errors[] et les autres lignes valides sont quand
-    meme creees — un bibliothecaire import 500 lignes ne doit pas perdre
-    499 lignes correctes a cause d'une seule faute de frappe.
-    """
+    """Importe des livres en masse depuis un contenu CSV."""
     reader = csv.DictReader(io.StringIO(csv_content))
     errors: list[ImportRowError] = []
     created_count = 0
     total_rows = 0
 
-    for row_number, row in enumerate(reader, start=2):  # ligne 1 = header
+    for row_number, row in enumerate(reader, start=2):
         total_rows += 1
         try:
-            book = _parse_row(row, row_number)
+            book = _parse_row(db, row, row_number)
             if book.isbn:
                 existing = db.query(Book).filter(Book.isbn == book.isbn).first()
                 if existing is not None:
                     raise ValueError(f"ISBN '{book.isbn}' deja present au catalogue")
             db.add(book)
-            db.flush()  # detecte les erreurs d'integrite avant le commit final
+            db.flush()
             created_count += 1
         except Exception as exc:
             db.rollback()

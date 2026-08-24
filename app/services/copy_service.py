@@ -2,10 +2,13 @@
 
 from sqlalchemy.orm import Session
 
+from datetime import datetime, timezone
+
 from app.models.book import Book
 from app.models.copy import Copy
+from app.models.loan import Loan
 from app.schemas.copy import CopyCreate, CopyUpdate
-from app.models.enums import CopyStatus
+from app.models.enums import CopyStatus, LoanStatus
 
 
 class CopyNotFoundError(Exception):
@@ -19,6 +22,10 @@ class QrCodeNotFoundError(Exception):
     message distinct de CopyNotFoundError pour un diagnostic clair cote bibliothecaire.
     """
     pass
+
+
+class BookNotFoundForCopyError(Exception):
+    pass
 class CopyNotRepairableError(Exception):
     """Levee quand on tente de reparer un exemplaire qui n'est pas dans l'etat 'damaged'."""
     pass
@@ -30,6 +37,11 @@ def create_copy(db: Session, copy_in: CopyCreate) -> Copy:
     imprimer et coller sur le livre physique, conformement au workflow
     "Consignes de Gestion du catalogue" (creation -> generation QR -> impression/collage).
     """
+    book = db.get(Book, copy_in.book_id)
+    if book is None:
+        raise BookNotFoundForCopyError(
+            f"Livre id={copy_in.book_id} introuvable, impossible de creer l'exemplaire."
+        )
     copy = Copy(**copy_in.model_dump())
     db.add(copy)
     db.commit()
@@ -71,22 +83,26 @@ def scan_qr_code(db: Session, qr_code: str) -> dict:
         "qr_code": copy.qr_code,
         "status": copy.status,
         "location": copy.location,
+        "call_number": copy.call_number,
         "book_id": copy.book_id,
         "book_title": title,
         "book_author": author,
     }
 def mark_copy_as_lost(db: Session, copy_id: int) -> Copy:
-    """
-    Marque un exemplaire comme perdu (retire definitivement du catalogue actif,
-    conforme au Cahier d'Architecture §4.1 - statut 'Perdu').
-    Si un emprunt actif existe sur cet exemplaire, il n'est PAS automatiquement
-    cloture ici : une perte concerne generalement un exemplaire deja emprunte
-    et jamais retourne, la gestion de l'emprunt associe (facturation, etc.)
-    reste une decision bibliothecaire distincte, hors du perimetre de cette action.
-    """
+    """Marque un exemplaire comme perdu et clôture son emprunt actif associé s'il existe."""
     copy = db.get(Copy, copy_id)
     if copy is None:
         raise CopyNotFoundError(f"Exemplaire id={copy_id} introuvable.")
+
+    active_loan = (
+        db.query(Loan)
+        .filter(Loan.copy_id == copy_id, Loan.status == LoanStatus.ACTIVE)
+        .first()
+    )
+    if active_loan is not None:
+        active_loan.status = LoanStatus.RETURNED
+        active_loan.returned_at = datetime.now(timezone.utc)
+
     copy.status = CopyStatus.LOST
     db.commit()
     db.refresh(copy)

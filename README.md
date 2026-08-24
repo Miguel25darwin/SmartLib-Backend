@@ -98,6 +98,17 @@ existants) mais ajoute toujours de nouveaux livres si relance plusieurs fois.
 
 ---
 
+## Peupler le referentiel Dewey
+
+```bash
+python scripts/seed_dewey.py
+```
+
+Cree les 10 classes principales et une selection de divisions courantes, en
+formulations propres a l'etablissement (aucun contenu sous licence OCLC).
+
+---
+
 ## Lancer les tests
 
 Nécessite une base PostgreSQL de test nommée `smartlib_test_db` :

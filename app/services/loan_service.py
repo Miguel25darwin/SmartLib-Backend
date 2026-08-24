@@ -50,6 +50,31 @@ class LoanAlreadyReturnedError(Exception):
 
 class NotLoanOwnerError(Exception):
     pass
+
+
+def refresh_overdue_loans(db: Session) -> None:
+    """Met à jour les prêts actifs expirés au statut OVERDUE."""
+    now = datetime.now(timezone.utc)
+    expired_loans = (
+        db.query(Loan)
+        .filter(Loan.status == LoanStatus.ACTIVE, Loan.due_date < now)
+        .all()
+    )
+    for loan in expired_loans:
+        loan.status = LoanStatus.OVERDUE
+    if expired_loans:
+        db.commit()
+
+
+def _refresh_overdue_statuses(db: Session) -> None:
+    """Bascule en retard les emprunts actifs dont la date limite est depassee."""
+    db.query(Loan).filter(
+        Loan.status == LoanStatus.ACTIVE,
+        Loan.due_date < datetime.now(timezone.utc),
+    ).update({"status": LoanStatus.OVERDUE}, synchronize_session=False)
+    db.commit()
+
+
 def _enrich_loan(db: Session, loan: Loan) -> Loan:
     """Attache dynamiquement book_title et user_name a l'objet loan (attributs non-colonnes)."""
     user = db.get(UserModel, loan.user_id)
@@ -165,6 +190,7 @@ def return_loan(db: Session, loan_id: uuid.UUID, current_user: User) -> Loan:
 
 def list_loans_for_user(db: Session, user_id: uuid.UUID) -> list[Loan]:
     """Emprunts en cours + historique de l'utilisateur (GET /loans/me)."""
+    _refresh_overdue_statuses(db)
     loans = (
         db.query(Loan)
         .filter(Loan.user_id == user_id)
@@ -176,6 +202,7 @@ def list_loans_for_user(db: Session, user_id: uuid.UUID) -> list[Loan]:
 
 def list_all_loans(db: Session, status_filter: LoanStatus | None = None) -> list[Loan]:
     """Tous les emprunts (bibliothécaire / admin) — GET /loans."""
+    _refresh_overdue_statuses(db)
     query = db.query(Loan)
     if status_filter is not None:
         query = query.filter(Loan.status == status_filter)

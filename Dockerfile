@@ -3,6 +3,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+RUN mkdir -p uploads/covers
+
 # Dependances systeme minimales pour psycopg2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev gcc \

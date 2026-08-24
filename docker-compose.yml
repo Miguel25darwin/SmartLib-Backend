@@ -32,12 +32,17 @@ services:
       APP_NAME: SmartLib API
       APP_ENV: production
       API_V1_PREFIX: /api/v1
-      CORS_ORIGINS: '["http://localhost:3000","http://localhost:8080","http://localhost:5000"]'
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:8080","http://localhost:5000","https://smartlib-frontend.onrender.com"]'
+      UPLOAD_DIR: uploads/covers
+      MAX_UPLOAD_SIZE_MB: 5
 
     ports:
       - "8000:8000"
+    volumes:
+      - smartlib_uploads:/app/uploads
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 volumes:
   smartlib_pgdata:
+  smartlib_uploads:

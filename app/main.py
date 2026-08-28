@@ -80,6 +80,20 @@ def health_check() -> dict:
     return {"status": "ok", "app": settings.APP_NAME, "env": settings.APP_ENV}
 
 
+@app.on_event("startup")
+def auto_seed_dewey():
+    try:
+        from app.db.session import SessionLocal
+        from app.models.dewey_classification import DeweyClassification
+        db = SessionLocal()
+        if db.query(DeweyClassification).count() == 0:
+            from scripts.seed_dewey import seed_dewey
+            seed_dewey(db)
+        db.close()
+    except Exception as e:
+        print(f"Auto-seed Dewey error: {e}")
+
+
 @app.post("/seed", tags=["admin"])
 def run_seed(x_seed_token: str = Header(...), db: Session = Depends(get_db)):
     """

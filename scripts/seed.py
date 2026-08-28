@@ -125,6 +125,10 @@ def seed_catalogue(db) -> None:
 def main() -> None:
     db = SessionLocal()
     try:
+        print("=== Seed du referentiel Dewey ===")
+        from scripts.seed_dewey import seed_dewey
+        seed_dewey(db)
+
         print("=== Seed des utilisateurs ===")
         seed_users(db)
 

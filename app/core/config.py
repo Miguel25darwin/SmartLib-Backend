@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000", "http://localhost:8080", "http://localhost:5000",
         "https://smartlib-frontend.onrender.com",
+        "https://smartlib.vercel.app",
     ]
     UPLOAD_DIR: str = "uploads/covers"
     MAX_UPLOAD_SIZE_MB: int = 5

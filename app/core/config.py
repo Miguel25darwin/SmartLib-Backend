@@ -32,6 +32,7 @@ class Settings(BaseSettings):
         "http://localhost:3000", "http://localhost:8080", "http://localhost:5000",
         "https://smartlib-frontend.onrender.com",
         "https://smartlib-frontend-one.vercel.app",
+        "https://smartlib-frontend-bv2z.vercel.app",
     ]
     UPLOAD_DIR: str = "uploads/covers"
     MAX_UPLOAD_SIZE_MB: int = 5

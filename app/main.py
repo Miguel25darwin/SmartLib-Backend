@@ -72,7 +72,7 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
     # Autorise tout port localhost/127.0.0.1 en developpement : `flutter run -d chrome`
     # attribue un port aleatoire, ce qui bloquait sinon les requetes (CORS).
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+|https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

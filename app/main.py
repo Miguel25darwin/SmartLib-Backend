@@ -97,15 +97,32 @@ def health_check() -> dict:
 @app.on_event("startup")
 def auto_seed_dewey():
     try:
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
         from app.db.session import SessionLocal
+        from app.models.user import User
+        from app.models.book import Book
         from app.models.dewey_classification import DeweyClassification
+
         db = SessionLocal()
-        if db.query(DeweyClassification).count() == 0:
-            from scripts.seed_dewey import seed_dewey
-            seed_dewey(db)
-        db.close()
+        try:
+            # Sur une base completement vide, on lance le seed complet
+            # (Dewey + utilisateurs + catalogue) pour que l'application soit
+            # immediatement utilisable (comptes admin/test disponibles).
+            if db.query(User).count() == 0 and db.query(Book).count() == 0:
+                print("Base vide : lancement du seed complet...")
+                from scripts.seed import main as seed_main
+                seed_main()
+            elif db.query(DeweyClassification).count() == 0:
+                from scripts.seed_dewey import seed_dewey
+                seed_dewey(db)
+                db.commit()
+        finally:
+            db.close()
     except Exception as e:
-        print(f"Auto-seed Dewey error: {e}")
+        print(f"Auto-seed error: {e}")
 
 
 @app.post("/seed", tags=["admin"])

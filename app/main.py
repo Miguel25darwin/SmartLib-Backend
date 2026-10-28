@@ -96,6 +96,7 @@ def health_check() -> dict:
 
 @app.on_event("startup")
 def auto_seed_dewey():
+    import traceback
     try:
         import sys
         from pathlib import Path
@@ -103,26 +104,27 @@ def auto_seed_dewey():
 
         from app.db.session import SessionLocal
         from app.models.user import User
-        from app.models.book import Book
-        from app.models.dewey_classification import DeweyClassification
 
         db = SessionLocal()
         try:
-            # Sur une base completement vide, on lance le seed complet
-            # (Dewey + utilisateurs + catalogue) pour que l'application soit
-            # immediatement utilisable (comptes admin/test disponibles).
-            if db.query(User).count() == 0 and db.query(Book).count() == 0:
-                print("Base vide : lancement du seed complet...")
+            admin_exists = db.query(User).filter(User.email == "admin@smartlib.cm").first() is not None
+
+            if not admin_exists:
+                print("Aucun compte admin detecte : lancement du seed complet...")
                 from scripts.seed import main as seed_main
                 seed_main()
-            elif db.query(DeweyClassification).count() == 0:
-                from scripts.seed_dewey import seed_dewey
-                seed_dewey(db)
-                db.commit()
+                print("Seed termine.")
+            else:
+                from app.models.dewey_classification import DeweyClassification
+                if db.query(DeweyClassification).count() == 0:
+                    from scripts.seed_dewey import seed_dewey
+                    seed_dewey(db)
+                    db.commit()
         finally:
             db.close()
     except Exception as e:
         print(f"Auto-seed error: {e}")
+        traceback.print_exc()
 
 
 @app.post("/seed", tags=["admin"])

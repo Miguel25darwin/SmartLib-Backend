@@ -19,7 +19,7 @@ erDiagram
         varchar isbn "UNIQUE, nullable, 20"
         varchar publisher "nullable, 255"
         int publication_year "nullable"
-        varchar dewey_classification "nullable, 10, indexe"
+        int dewey_id FK "nullable -> dewey_classifications.id (ondelete RESTRICT), indexe"
         book_type type "PHYSICAL ou DIGITAL"
         book_language language "FR ou EN, defaut FR"
         varchar cover_url "nullable, 500"

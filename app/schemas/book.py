@@ -52,4 +52,3 @@ class BookRead(BookBase):
     dewey_label_fr: str | None = None
     dewey_label_en: str | None = None
     dewey_label: str | None = None       # libelle unifie (label_fr par defaut) pour Flutter
-    dewey_classification: str | None = None  # legacy : ancien texte libre

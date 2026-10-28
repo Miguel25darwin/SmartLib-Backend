@@ -1,14 +1,46 @@
 """Couche service pour l'entite Copy (exemplaires physiques) et le scan QR Code."""
 
+import re
+
 from sqlalchemy.orm import Session
 
 from datetime import datetime, timezone
 
 from app.models.book import Book
 from app.models.copy import Copy
+from app.models.dewey_classification import DeweyClassification
 from app.models.loan import Loan
 from app.schemas.copy import CopyCreate, CopyUpdate
 from app.models.enums import CopyStatus, LoanStatus
+
+
+def build_call_number(
+    dewey_code: str | None, author: str, *, index: int = 1, total: int = 1
+) -> str:
+    """
+    Construit une cote de rangement selon la convention
+    '<code Dewey> <code auteur 3 lettres>[-<numero d'exemplaire>]'.
+
+    Exemples : "005 COR" (exemplaire unique), "005 COR-1"/"005 COR-2" (plusieurs
+    exemplaires du meme ouvrage). Le suffixe n'apparait que s'il y a plusieurs
+    exemplaires, pour rester coherent avec le formulaire admin.
+    """
+    code = (dewey_code or "000").strip() or "000"
+    # Code auteur : 3 premieres lettres du NOM (dernier mot), convention usuelle
+    # de catalogage ("T. Cormen" -> "COR", "H. de Blij" -> "BLI").
+    tokens = re.findall(r"[A-Za-z]+", author or "")
+    surname = tokens[-1] if tokens else ""
+    author_code = (surname[:3] or "XXX").upper()
+    base = f"{code} {author_code}"
+    return f"{base}-{index}" if total > 1 else base
+
+
+def _resolve_dewey_code(db: Session, book: Book) -> str | None:
+    """Retourne le code Dewey lisible du livre (via sa FK dewey_id), ou None."""
+    if book.dewey_id is None:
+        return None
+    dewey = db.get(DeweyClassification, book.dewey_id)
+    return dewey.code if dewey is not None else None
 
 
 class CopyNotFoundError(Exception):
@@ -43,6 +75,16 @@ def create_copy(db: Session, copy_in: CopyCreate) -> Copy:
             f"Livre id={copy_in.book_id} introuvable, impossible de creer l'exemplaire."
         )
     copy = Copy(**copy_in.model_dump())
+
+    # Cote de rangement : si le bibliothecaire n'en a pas fourni, on la genere
+    # automatiquement (code Dewey + code auteur) afin qu'aucun exemplaire
+    # physique n'entre au catalogue sans adresse de rangement.
+    if copy.call_number is None:
+        total = db.query(Copy).filter(Copy.book_id == book.id).count() + 1
+        copy.call_number = build_call_number(
+            _resolve_dewey_code(db, book), book.author, index=total, total=total
+        )
+
     db.add(copy)
     db.commit()
     db.refresh(copy)

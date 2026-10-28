@@ -30,10 +30,10 @@ class Book(Base, TimestampMixin):
     synopsis: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     digital_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Classification Dewey : source unique de verite (FK vers le referentiel).
     dewey_id: Mapped[int | None] = mapped_column(
         ForeignKey("dewey_classifications.id", ondelete="RESTRICT"), nullable=True, index=True
     )
-    dewey_classification: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     type: Mapped[BookType] = mapped_column(SAEnum(BookType, name="book_type"), nullable=False)
     language: Mapped[LanguagePref] = mapped_column(

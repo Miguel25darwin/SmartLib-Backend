@@ -40,9 +40,11 @@ class DigitalFormat(str, enum.Enum):
 
 
 class LoanStatus(str, enum.Enum):
+    PENDING = "pending"
     ACTIVE = "active"
     RETURNED = "returned"
     OVERDUE = "overdue"
+    REJECTED = "rejected"
 
 
 # Quotas d'emprunt simultané par rôle (Cahier d'Architecture §3)

@@ -88,6 +88,36 @@ def librarian_user(db_session):
     return user
 
 
+@pytest.fixture
+def admin_user(db_session):
+    """Cree un administrateur directement en base pour les tests."""
+    user = User(
+        full_name="Test Admin",
+        email=f"admin.{uuid.uuid4().hex[:8]}@test.cm",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.ADMIN,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def lecturer_user(db_session):
+    """Cree un enseignant directement en base pour les tests."""
+    user = User(
+        full_name="Test Enseignant",
+        email=f"enseignant.{uuid.uuid4().hex[:8]}@test.cm",
+        password_hash=hash_password("testpass123"),
+        role=UserRole.LECTURER,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
 def auth_headers(user) -> dict:
     """Genere un header Authorization Bearer valide pour un utilisateur donne."""
     from app.core.security import create_access_token

@@ -29,7 +29,11 @@ class ReportSummary(BaseModel):
     total_copies: int
     copies_available: int
     copies_borrowed: int
+    copies_reserved: int
+    copies_lost: int
+    copies_damaged: int
     total_users: int
     total_loans_active: int
     total_loans_overdue: int
     total_loans_returned: int
+    rotation_rate: float

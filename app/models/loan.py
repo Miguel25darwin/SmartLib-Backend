@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, DateTime
+from sqlalchemy import CheckConstraint, DateTime, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
@@ -56,6 +56,12 @@ class Loan(Base, TimestampMixin):
     status: Mapped[LoanStatus] = mapped_column(
         SAEnum(LoanStatus, name="loan_status"), nullable=False, default=LoanStatus.ACTIVE
     )
+
+    # Traitement de la demande par un gestionnaire (bibliothecaire/admin).
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="loans")
     copy: Mapped["Copy | None"] = relationship(back_populates="loans")

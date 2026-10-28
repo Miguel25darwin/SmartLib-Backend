@@ -8,8 +8,9 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
+from app.models.loan import Loan
 from app.models.user import User, generate_card_number
-from app.schemas.user import UserCreate
+from app.schemas.user import UserCreate, UserRead
 
 
 class EmailAlreadyExistsError(Exception):
@@ -19,6 +20,11 @@ class EmailAlreadyExistsError(Exception):
 
 class UserNotFoundError(Exception):
     """Levee quand un utilisateur demande (par id ou carte) n'existe pas."""
+    pass
+
+
+class UserHasLoansError(Exception):
+    """Levee quand on tente de supprimer un compte possedant des emprunts."""
     pass
 
 
@@ -39,15 +45,31 @@ def update_user_admin(db: Session, user_id, data) -> User:
     return user
 
 
-def deactivate_user(db: Session, user_id) -> User:
-    """Desactive un compte sans supprimer son historique d'emprunts."""
+def delete_user(db: Session, user_id) -> UserRead:
+    """Supprime definitivement un compte utilisateur.
+
+    Refuse la suppression (UserHasLoansError) si le compte possede des emprunts :
+    l'historique des prets doit etre conserve (contrainte de cle etrangere
+    loans.user_id en ON DELETE RESTRICT). Dans ce cas il faut desactiver le
+    compte (statut Inactif) plutot que de le supprimer.
+    """
     user = db.get(User, user_id)
     if user is None:
         raise UserNotFoundError(f"Utilisateur id={user_id} introuvable.")
-    user.is_active = False
+
+    loan_count = db.query(Loan).filter(Loan.user_id == user_id).count()
+    if loan_count > 0:
+        raise UserHasLoansError(
+            f"Ce compte a {loan_count} emprunt(s) enregistre(s) et ne peut pas "
+            "etre supprime. Desactivez-le a la place (statut Inactif)."
+        )
+
+    # Instantane lu AVANT la suppression : apres le commit, l'objet ORM est
+    # expire et ne serait plus serialisable pour la reponse.
+    snapshot = UserRead.model_validate(user)
+    db.delete(user)
     db.commit()
-    db.refresh(user)
-    return user
+    return snapshot
 
 
 def change_password(db: Session, user: User, current_password: str, new_password: str) -> None:

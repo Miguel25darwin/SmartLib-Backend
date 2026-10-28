@@ -5,6 +5,7 @@ from app.schemas.book import BookCreate, BookRead, BookUpdate
 from app.schemas.copy import CopyCreate, CopyRead, CopyUpdate
 from app.schemas.digital_resource import DigitalResourceCreate, DigitalResourceRead, DigitalResourceUpdate
 from app.schemas.loan import LoanCreate, LoanRead, LoanReturn
+from app.schemas.recommendation import RecommendationCreate, RecommendationRead, RecommendationUpdate
 from app.schemas.user import UserCreate, UserRead, UserUpdate, UserUpdateAdmin, UserChangePassword
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "CopyCreate", "CopyRead", "CopyUpdate",
     "DigitalResourceCreate", "DigitalResourceRead", "DigitalResourceUpdate",
     "LoanCreate", "LoanRead", "LoanReturn",
+    "RecommendationCreate", "RecommendationRead", "RecommendationUpdate",
     "UserUpdateAdmin", "UserChangePassword",
 ]

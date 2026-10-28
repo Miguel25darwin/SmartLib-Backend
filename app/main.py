@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.routers import auth, books, catalogue_bulk, dewey, isbn_lookup, loans, reports, users
+from app.routers import auth, books, catalogue_bulk, dewey, isbn_lookup, loans, recommendations, reports, users
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -42,12 +42,22 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    # Les validateurs `model_validator` (ex: LoanCreate) placent un objet
+    # `ValueError` dans `ctx`, non serialisable tel quel par JSONResponse.
+    # On le convertit en chaine pour garantir une reponse 422 stable.
+    details = []
+    for err in exc.errors():
+        err = dict(err)
+        ctx = err.get("ctx")
+        if isinstance(ctx, dict):
+            err["ctx"] = {key: str(value) for key, value in ctx.items()}
+        details.append(err)
     return JSONResponse(
         status_code=422,
         content={
             "code": "VALIDATION_ERROR",
             "message": "Les donnees envoyees sont invalides.",
-            "details": exc.errors(),
+            "details": details,
         },
     )
 
@@ -60,6 +70,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    # Autorise tout port localhost/127.0.0.1 en developpement : `flutter run -d chrome`
+    # attribue un port aleatoire, ce qui bloquait sinon les requetes (CORS).
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -69,6 +82,7 @@ app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(users.router, prefix=settings.API_V1_PREFIX)
 app.include_router(books.router, prefix=settings.API_V1_PREFIX)
 app.include_router(loans.router, prefix=settings.API_V1_PREFIX)
+app.include_router(recommendations.router, prefix=settings.API_V1_PREFIX)
 app.include_router(reports.router, prefix=settings.API_V1_PREFIX)
 app.include_router(catalogue_bulk.router, prefix=settings.API_V1_PREFIX)
 app.include_router(isbn_lookup.router, prefix=settings.API_V1_PREFIX)

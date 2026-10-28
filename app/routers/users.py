@@ -13,12 +13,12 @@ from app.models.enums import UserRole as UserRoleEnum
 from app.services.user_service import (
     InvalidCurrentPasswordError,
     change_password as change_password_service,
-    deactivate_user,
+    delete_user as delete_user_service,
     list_users,
     update_user_admin,
 )
 from app.schemas.user import PasswordChange, UserAdminUpdate, UserCardScanResult, UserRead, UserUpdate
-from app.services.user_service import UserNotFoundError, get_user_by_card_number
+from app.services.user_service import UserHasLoansError, UserNotFoundError, get_user_by_card_number
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -87,12 +87,27 @@ def update_user(user_id: uuid.UUID, data: UserAdminUpdate, db: Session = Depends
 
 
 @router.delete("/{user_id}", response_model=UserRead, dependencies=[Depends(require_roles(UserRole.ADMIN))])
-def delete_user(user_id: uuid.UUID, db: Session = Depends(get_db)) -> UserRead:
-    """Desactive un compte utilisateur (admin uniquement)."""
+def delete_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserRead:
+    """Supprime definitivement un compte utilisateur (admin uniquement).
+
+    Refuse (409) si le compte possede des emprunts (historique a conserver) ou
+    s'il s'agit de son propre compte.
+    """
+    if current_user.id == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Vous ne pouvez pas supprimer votre propre compte.",
+        )
     try:
-        return deactivate_user(db, user_id)
+        return delete_user_service(db, user_id)
     except UserNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except UserHasLoansError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("", response_model=list[UserRead], dependencies=[Depends(LIBRARIAN_OR_ADMIN)])

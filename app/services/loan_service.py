@@ -52,6 +52,10 @@ class NotLoanOwnerError(Exception):
     pass
 
 
+class LoanNotPendingError(Exception):
+    pass
+
+
 def refresh_overdue_loans(db: Session) -> None:
     """Met à jour les prêts actifs expirés au statut OVERDUE."""
     now = datetime.now(timezone.utc)
@@ -99,23 +103,43 @@ def _enrich_loan(db: Session, loan: Loan) -> Loan:
 
     return loan
 
-def _count_active_loans(db: Session, user_id: uuid.UUID) -> int:
-    return (
-        db.query(Loan)
-        .filter(Loan.user_id == user_id, Loan.status == LoanStatus.ACTIVE)
-        .count()
+def _count_open_loans(
+    db: Session,
+    user_id: uuid.UUID,
+    exclude_loan_id: uuid.UUID | None = None,
+) -> int:
+    """Emprunts occupant le quota : actifs, en retard et demandes en attente."""
+    query = db.query(Loan).filter(
+        Loan.user_id == user_id,
+        Loan.status.in_(
+            [LoanStatus.ACTIVE, LoanStatus.OVERDUE, LoanStatus.PENDING]
+        ),
     )
+    if exclude_loan_id is not None:
+        query = query.filter(Loan.id != exclude_loan_id)
+    return query.count()
 
 
-def create_loan(db: Session, current_user: User, loan_in: LoanCreate) -> Loan:
+def create_loan(
+    db: Session,
+    current_user: User,
+    loan_in: LoanCreate,
+    *,
+    auto_approve: bool = False,
+) -> Loan:
     """
-    Crée un emprunt pour l'utilisateur courant.
-    La validation "exactement un des deux champs" est déjà faite par le schéma
-    Pydantic LoanCreate ; ici on vérifie les règles métier au niveau base.
+    Cree une demande d'emprunt pour l'utilisateur courant.
+
+    Par defaut (`auto_approve=False`), la demande reste au statut PENDING :
+    un bibliothecaire/admin doit la verifier puis l'autoriser avant que le
+    membre n'entre en possession du document.
+
+    Les flux assistes au guichet (scan double, creation admin) passent
+    `auto_approve=True` : le gestionnaire est deja en train d'autoriser.
     """
-    # 1. Vérification du quota (Cahier d'Architecture §3)
+    # 1. Verification du quota (Cahier d'Architecture §3)
     limit = LOAN_LIMITS_BY_ROLE[current_user.role]
-    if _count_active_loans(db, current_user.id) >= limit:
+    if _count_open_loans(db, current_user.id) >= limit:
         raise LoanQuotaExceededError(
             f"Quota d'emprunts atteint pour le rôle '{current_user.role.value}' (limite : {limit})."
         )
@@ -132,16 +156,14 @@ def create_loan(db: Session, current_user: User, loan_in: LoanCreate) -> Loan:
             raise CopyNotAvailableError(
                 f"Exemplaire id={copy.id} non disponible (statut actuel : {copy.status.value})."
             )
-        copy.status = CopyStatus.BORROWED
+        if auto_approve:
+            copy.status = CopyStatus.BORROWED
     else:
         resource = db.get(DigitalResource, loan_in.digital_resource_id)
         if resource is None:
             raise DigitalResourceNotFoundError(
                 f"Ressource numérique id={loan_in.digital_resource_id} introuvable."
             )
-        # NOTE (Phase 2) : le contrôle DRM du nombre d'accès simultanés par licence
-        # n'est pas encore modélisé dans le prototype — pas de vérification de
-        # disponibilité pour les ressources numériques à ce stade.
 
     loan = Loan(
         user_id=current_user.id,
@@ -149,12 +171,92 @@ def create_loan(db: Session, current_user: User, loan_in: LoanCreate) -> Loan:
         digital_resource_id=loan_in.digital_resource_id,
         borrowed_at=now,
         due_date=due_date,
-        status=LoanStatus.ACTIVE,
+        status=LoanStatus.ACTIVE if auto_approve else LoanStatus.PENDING,
     )
     db.add(loan)
     db.commit()
     db.refresh(loan)
     return _enrich_loan(db, loan)
+
+
+def approve_loan(
+    db: Session,
+    loan_id: uuid.UUID,
+    *,
+    note: str | None = None,
+) -> Loan:
+    """Autorise une demande en attente et met l'exemplaire a disposition."""
+    loan = db.get(Loan, loan_id)
+    if loan is None:
+        raise LoanNotFoundError(f"Demande id={loan_id} introuvable.")
+    if loan.status != LoanStatus.PENDING:
+        raise LoanNotPendingError(
+            f"Cette demande a deja ete traitee (statut : {loan.status.value})."
+        )
+
+    user = db.get(UserModel, loan.user_id)
+    if user is None:
+        raise LoanNotFoundError("Utilisateur de la demande introuvable.")
+
+    limit = LOAN_LIMITS_BY_ROLE[user.role]
+    if _count_open_loans(db, user.id, exclude_loan_id=loan.id) >= limit:
+        raise LoanQuotaExceededError(
+            f"Quota d'emprunts atteint pour ce membre (limite : {limit})."
+        )
+
+    now = datetime.now(timezone.utc)
+    if loan.copy_id is not None:
+        copy = db.get(Copy, loan.copy_id)
+        if copy is None:
+            raise CopyNotFoundError(f"Exemplaire id={loan.copy_id} introuvable.")
+        if copy.status != CopyStatus.AVAILABLE:
+            raise CopyNotAvailableError(
+                "Cet exemplaire n'est plus disponible : il a ete emprunte ou retire du rayon."
+            )
+        copy.status = CopyStatus.BORROWED
+
+    loan.borrowed_at = now
+    loan.due_date = now + timedelta(days=settings.LOAN_DURATION_DAYS)
+    loan.status = LoanStatus.ACTIVE
+    loan.decided_at = now
+    loan.decision_note = note
+    db.commit()
+    db.refresh(loan)
+    return _enrich_loan(db, loan)
+
+
+def reject_loan(
+    db: Session,
+    loan_id: uuid.UUID,
+    *,
+    note: str | None = None,
+) -> Loan:
+    """Refuse une demande en attente ; l'exemplaire reste disponible."""
+    loan = db.get(Loan, loan_id)
+    if loan is None:
+        raise LoanNotFoundError(f"Demande id={loan_id} introuvable.")
+    if loan.status != LoanStatus.PENDING:
+        raise LoanNotPendingError(
+            f"Cette demande a deja ete traitee (statut : {loan.status.value})."
+        )
+
+    loan.status = LoanStatus.REJECTED
+    loan.decided_at = datetime.now(timezone.utc)
+    loan.decision_note = note
+    db.commit()
+    db.refresh(loan)
+    return _enrich_loan(db, loan)
+
+
+def list_pending_loans(db: Session) -> list[Loan]:
+    """Demandes d'emprunt en attente d'autorisation (bibliothecaire/admin)."""
+    loans = (
+        db.query(Loan)
+        .filter(Loan.status == LoanStatus.PENDING)
+        .order_by(Loan.borrowed_at.asc())
+        .all()
+    )
+    return [_enrich_loan(db, loan) for loan in loans]
 
 
 def return_loan(db: Session, loan_id: uuid.UUID, current_user: User) -> Loan:
@@ -172,8 +274,10 @@ def return_loan(db: Session, loan_id: uuid.UUID, current_user: User) -> Loan:
     if not is_owner and not is_staff:
         raise NotLoanOwnerError("Vous n'êtes pas autorisé à retourner cet emprunt.")
 
-    if loan.status != LoanStatus.ACTIVE:
-        raise LoanAlreadyReturnedError(f"Cet emprunt a déjà le statut '{loan.status.value}'.")
+    if loan.status not in (LoanStatus.ACTIVE, LoanStatus.OVERDUE):
+        raise LoanAlreadyReturnedError(
+            f"Cet emprunt a le statut '{loan.status.value}' et ne peut pas être retourné."
+        )
 
     loan.returned_at = datetime.now(timezone.utc)
     loan.status = LoanStatus.RETURNED
@@ -224,7 +328,7 @@ def borrow_by_scan(db: Session, card_number: str, qr_code: str) -> Loan:
     if copy is None:
         raise CopyNotFoundError(f"Aucun exemplaire ne correspond au QR Code '{qr_code}'.")
 
-    loan = create_loan(db, user, LoanCreate(copy_id=copy.id))
+    loan = create_loan(db, user, LoanCreate(copy_id=copy.id), auto_approve=True)
     return _enrich_loan(db, loan)
 
 
@@ -240,7 +344,10 @@ def return_by_scan(db: Session, qr_code: str) -> Loan:
 
     active_loan = (
         db.query(Loan)
-        .filter(Loan.copy_id == copy.id, Loan.status == LoanStatus.ACTIVE)
+        .filter(
+            Loan.copy_id == copy.id,
+            Loan.status.in_([LoanStatus.ACTIVE, LoanStatus.OVERDUE]),
+        )
         .first()
     )
 
@@ -277,6 +384,7 @@ def create_loan_for_user(
         db,
         target_user,
         LoanCreate(copy_id=copy_id, digital_resource_id=digital_resource_id),
+        auto_approve=True,
     )
 
     if due_date_override is not None:

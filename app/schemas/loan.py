@@ -47,6 +47,14 @@ class LoanRead(BaseModel):
     due_date: datetime
     returned_at: datetime | None
     status: LoanStatus
+    decided_at: datetime | None = None
+    decision_note: str | None = None
+
+
+class LoanDecision(BaseModel):
+    """Motif optionnel joint a l'approbation ou au refus d'une demande."""
+
+    note: str | None = Field(default=None, max_length=500)
 
 
 class LoanBorrowByScan(BaseModel):

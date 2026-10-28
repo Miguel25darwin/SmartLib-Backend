@@ -101,18 +101,27 @@ def get_summary(db: Session) -> dict:
     total_copies = db.query(Copy).count()
     copies_available = db.query(Copy).filter(Copy.status == CopyStatus.AVAILABLE).count()
     copies_borrowed = db.query(Copy).filter(Copy.status == CopyStatus.BORROWED).count()
+    copies_reserved = db.query(Copy).filter(Copy.status == CopyStatus.RESERVED).count()
+    copies_lost = db.query(Copy).filter(Copy.status == CopyStatus.LOST).count()
+    copies_damaged = db.query(Copy).filter(Copy.status == CopyStatus.DAMAGED).count()
     total_users = db.query(User).count()
     total_loans_active = db.query(Loan).filter(Loan.status == LoanStatus.ACTIVE).count()
     total_loans_overdue = db.query(Loan).filter(Loan.status == LoanStatus.OVERDUE).count()
     total_loans_returned = db.query(Loan).filter(Loan.status == LoanStatus.RETURNED).count()
+    total_loans = db.query(Loan).count()
 
     return {
         "total_books": total_books,
         "total_copies": total_copies,
         "copies_available": copies_available,
         "copies_borrowed": copies_borrowed,
+        "copies_reserved": copies_reserved,
+        "copies_lost": copies_lost,
+        "copies_damaged": copies_damaged,
         "total_users": total_users,
         "total_loans_active": total_loans_active,
         "total_loans_overdue": total_loans_overdue,
         "total_loans_returned": total_loans_returned,
+        # Taux de rotation : emprunts (tous statuts) / exemplaires, en %.
+        "rotation_rate": round(total_loans / total_copies * 100, 1) if total_copies else 0.0,
     }

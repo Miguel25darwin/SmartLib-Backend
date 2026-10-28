@@ -9,8 +9,8 @@ services:
     name: smartlib-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: ./start.sh
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         fromDatabase:

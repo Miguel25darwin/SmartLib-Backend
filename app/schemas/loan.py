@@ -41,6 +41,7 @@ class LoanRead(BaseModel):
     user_id: uuid.UUID
     copy_id: int | None
     digital_resource_id: int | None
+    book_id: int | None = None
     book_title: str | None = None
     user_name: str | None = None
     borrowed_at: datetime

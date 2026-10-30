@@ -26,6 +26,7 @@ from app.services.loan_service import (
     CopyNotAvailableError,
     CopyNotFoundError,
     DigitalResourceNotFoundError,
+    LoanAlreadyOpenError,
     LoanAlreadyReturnedError,
     LoanNotFoundError,
     LoanNotPendingError,
@@ -78,7 +79,7 @@ def borrow(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except (CopyNotFoundError, DigitalResourceNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except CopyNotAvailableError as exc:
+    except (CopyNotAvailableError, LoanAlreadyOpenError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
@@ -116,7 +117,7 @@ def approve_pending_loan(
         return approve_loan(db, loan_id, note=payload.note if payload else None)
     except LoanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except (LoanNotPendingError, CopyNotAvailableError) as exc:
+    except (LoanNotPendingError, CopyNotAvailableError, LoanAlreadyOpenError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LoanQuotaExceededError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
@@ -174,7 +175,7 @@ def borrow_for_user(payload: LoanCreateAdmin, db: Session = Depends(get_db)) -> 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except (CopyNotFoundError, DigitalResourceNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except CopyNotAvailableError as exc:
+    except (CopyNotAvailableError, LoanAlreadyOpenError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 @router.get("/me", response_model=list[LoanRead])
 def my_loans(
@@ -215,7 +216,7 @@ def borrow_via_scan(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-    except CopyNotAvailableError as exc:
+    except (CopyNotAvailableError, LoanAlreadyOpenError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),

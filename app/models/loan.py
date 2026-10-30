@@ -67,6 +67,15 @@ class Loan(Base, TimestampMixin):
     copy: Mapped["Copy | None"] = relationship(back_populates="loans")
     digital_resource: Mapped["DigitalResource | None"] = relationship(back_populates="loans")
 
+    @property
+    def book_id(self) -> int | None:
+        """Livre cible, utile pour les regles « un seul emprunt par livre »."""
+        if self.copy is not None:
+            return self.copy.book_id
+        if self.digital_resource is not None:
+            return self.digital_resource.book_id
+        return None
+
     def __repr__(self) -> str:
         target = f"copy={self.copy_id}" if self.copy_id else f"digital={self.digital_resource_id}"
         return f"<Loan id={self.id} user={self.user_id} {target} status={self.status.value}>"

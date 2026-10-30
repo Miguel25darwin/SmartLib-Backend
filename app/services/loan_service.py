@@ -56,6 +56,12 @@ class LoanNotPendingError(Exception):
     pass
 
 
+class LoanAlreadyOpenError(Exception):
+    """L'utilisateur a deja un emprunt/demande en cours pour ce livre."""
+
+    pass
+
+
 def refresh_overdue_loans(db: Session) -> None:
     """Met à jour les prêts actifs expirés au statut OVERDUE."""
     now = datetime.now(timezone.utc)
@@ -120,6 +126,52 @@ def _count_open_loans(
     return query.count()
 
 
+def _loan_book_id(db: Session, loan: Loan) -> int | None:
+    """Livre cible d'un emprunt (exemplaire physique ou ressource numerique)."""
+    if loan.copy_id is not None:
+        copy = db.get(Copy, loan.copy_id)
+        return copy.book_id if copy is not None else None
+    if loan.digital_resource_id is not None:
+        resource = db.get(DigitalResource, loan.digital_resource_id)
+        return resource.book_id if resource is not None else None
+    return None
+
+
+def _ensure_no_open_loan_for_book(
+    db: Session,
+    user_id: uuid.UUID,
+    book_id: int | None,
+    *,
+    exclude_loan_id: uuid.UUID | None = None,
+    statuses: tuple[LoanStatus, ...] = (
+        LoanStatus.PENDING,
+        LoanStatus.ACTIVE,
+        LoanStatus.OVERDUE,
+    ),
+) -> None:
+    """Interdit plusieurs emprunts/demandes ouverts du meme livre pour un membre.
+
+    La regle est volontairement stricte : un membre ne peut pas avoir deux
+    emprunts ou demandes en cours sur le meme ouvrage, meme sur des exemplaires
+    differents. Cela evite les doublons constates dans la liste des prets.
+    """
+    if book_id is None:
+        return
+    query = db.query(Loan).filter(
+        Loan.user_id == user_id,
+        Loan.status.in_(list(statuses)),
+    )
+    if exclude_loan_id is not None:
+        query = query.filter(Loan.id != exclude_loan_id)
+    for existing in query.all():
+        if _loan_book_id(db, existing) == book_id:
+            raise LoanAlreadyOpenError(
+                "Un emprunt ou une demande est déjà en cours pour ce livre. "
+                "Rendez l'ouvrage ou attendez le traitement de la demande "
+                "avant de recommencer."
+            )
+
+
 def create_loan(
     db: Session,
     current_user: User,
@@ -156,14 +208,22 @@ def create_loan(
             raise CopyNotAvailableError(
                 f"Exemplaire id={copy.id} non disponible (statut actuel : {copy.status.value})."
             )
-        if auto_approve:
-            copy.status = CopyStatus.BORROWED
+        target_book_id = copy.book_id
     else:
         resource = db.get(DigitalResource, loan_in.digital_resource_id)
         if resource is None:
             raise DigitalResourceNotFoundError(
                 f"Ressource numérique id={loan_in.digital_resource_id} introuvable."
             )
+        target_book_id = resource.book_id
+
+    _ensure_no_open_loan_for_book(db, current_user.id, target_book_id)
+
+    if copy is not None:
+        # Une demande en attente reserve l'exemplaire : le stock disponible
+        # diminue immediatement et l'exemplaire ne peut pas etre demande deux
+        # fois. L'approbation le passera a BORROWED, le refus le liberera.
+        copy.status = CopyStatus.BORROWED if auto_approve else CopyStatus.RESERVED
 
     loan = Loan(
         user_id=current_user.id,
@@ -204,12 +264,22 @@ def approve_loan(
             f"Quota d'emprunts atteint pour ce membre (limite : {limit})."
         )
 
+    # Empeche d'activer deux emprunts du meme livre pour le meme membre
+    # (les demandes en double creees avant cette regle sont ainsi bloquees).
+    _ensure_no_open_loan_for_book(
+        db,
+        loan.user_id,
+        _loan_book_id(db, loan),
+        exclude_loan_id=loan.id,
+        statuses=(LoanStatus.ACTIVE, LoanStatus.OVERDUE),
+    )
+
     now = datetime.now(timezone.utc)
     if loan.copy_id is not None:
         copy = db.get(Copy, loan.copy_id)
         if copy is None:
             raise CopyNotFoundError(f"Exemplaire id={loan.copy_id} introuvable.")
-        if copy.status != CopyStatus.AVAILABLE:
+        if copy.status not in (CopyStatus.AVAILABLE, CopyStatus.RESERVED):
             raise CopyNotAvailableError(
                 "Cet exemplaire n'est plus disponible : il a ete emprunte ou retire du rayon."
             )
@@ -239,6 +309,11 @@ def reject_loan(
         raise LoanNotPendingError(
             f"Cette demande a deja ete traitee (statut : {loan.status.value})."
         )
+
+    if loan.copy_id is not None:
+        copy = db.get(Copy, loan.copy_id)
+        if copy is not None and copy.status == CopyStatus.RESERVED:
+            copy.status = CopyStatus.AVAILABLE
 
     loan.status = LoanStatus.REJECTED
     loan.decided_at = datetime.now(timezone.utc)

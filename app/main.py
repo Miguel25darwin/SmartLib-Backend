@@ -104,22 +104,31 @@ def auto_seed_dewey():
 
         from app.db.session import SessionLocal
         from app.models.user import User
+        from app.core.security import hash_password
 
         db = SessionLocal()
         try:
-            admin_exists = db.query(User).filter(User.email == "admin@smartlib.cm").first() is not None
+            admin = db.query(User).filter(User.email == "admin@smartlib.cm").first()
 
-            if not admin_exists:
+            # Garantir que le compte admin existe avec le mot de passe de demonstration.
+            if admin is None:
                 print("Aucun compte admin detecte : lancement du seed complet...")
                 from scripts.seed import main as seed_main
                 seed_main()
                 print("Seed termine.")
+                admin = db.query(User).filter(User.email == "admin@smartlib.cm").first()
             else:
-                from app.models.dewey_classification import DeweyClassification
-                if db.query(DeweyClassification).count() == 0:
-                    from scripts.seed_dewey import seed_dewey
-                    seed_dewey(db)
-                    db.commit()
+                # Reinitialiser le mot de passe pour garantir l'acces (base de demo).
+                admin.password_hash = hash_password("SmartLib2026!")
+                db.commit()
+                print("Compte admin present : mot de passe reinitialise.")
+
+            # S'assurer que le referentiel Dewey est present.
+            from app.models.dewey_classification import DeweyClassification
+            if db.query(DeweyClassification).count() == 0:
+                from scripts.seed_dewey import seed_dewey
+                seed_dewey(db)
+                db.commit()
         finally:
             db.close()
     except Exception as e:

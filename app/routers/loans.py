@@ -43,6 +43,7 @@ from app.services.loan_service import (
 
 router = APIRouter(prefix="/loans", tags=["emprunts"])
 
+# Helper : garde d'accès réservée aux bibliothécaires et administrateurs.
 LIBRARIAN_OR_ADMIN = require_roles(UserRole.LIBRARIAN, UserRole.ADMIN)
 
 
@@ -54,6 +55,7 @@ def loan_config() -> dict:
     Source de verite unique : les quotas et la duree ne sont plus dupliques
     en dur cote Flutter.
     """
+    # Règle métier : durée de prêt et quotas par rôle exposés à l'interface (source de vérité unique).
     return {
         "duration_days": settings.LOAN_DURATION_DAYS,
         "limits_by_role": {
@@ -74,6 +76,7 @@ def borrow(
     l'autoriser avant que le membre n'obtienne le document.
     """
     try:
+        # Règles métier : quota par rôle, anti-doublon par livre, réservation de l'exemplaire.
         return create_loan(db, current_user, loan_in)
     except LoanQuotaExceededError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
@@ -90,6 +93,7 @@ def borrow(
 )
 def pending_loans(db: Session = Depends(get_db)) -> list[LoanRead]:
     """Demandes d'emprunt en attente d'autorisation (bibliothécaire/admin)."""
+    # Liste des demandes PENDING triées par date de demande.
     return list_pending_loans(db)
 
 
@@ -99,6 +103,7 @@ def pending_loans(db: Session = Depends(get_db)) -> list[LoanRead]:
 )
 def pending_loans_count(db: Session = Depends(get_db)) -> dict:
     """Nombre de demandes en attente — utilisé par la cloche de notifications."""
+    # Compte les demandes PENDING pour l'indicateur de notification.
     return {"count": len(list_pending_loans(db))}
 
 
@@ -114,6 +119,7 @@ def approve_pending_loan(
 ) -> LoanRead:
     """Autoriser une demande d'emprunt après vérification de l'exemplaire."""
     try:
+        # Approbation : vérifie quota, anti-doublon, disponibilité de l'exemplaire.
         return approve_loan(db, loan_id, note=payload.note if payload else None)
     except LoanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -135,6 +141,7 @@ def reject_pending_loan(
 ) -> LoanRead:
     """Refuser une demande d'emprunt (l'exemplaire reste disponible)."""
     try:
+        # Refus : libère l'exemplaire réservé (retour au statut disponible).
         return reject_loan(db, loan_id, note=payload.note if payload else None)
     except LoanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -156,6 +163,7 @@ def borrow_for_user(payload: LoanCreateAdmin, db: Session = Depends(get_db)) -> 
     """
     from app.models.user import User as _UserModel
 
+    # Récupération de l'utilisateur cible (prêt assisté).
     target_user = db.get(_UserModel, payload.user_id)
     if target_user is None:
         raise HTTPException(
@@ -164,6 +172,7 @@ def borrow_for_user(payload: LoanCreateAdmin, db: Session = Depends(get_db)) -> 
         )
 
     try:
+        # Prêt assisté au guichet : mêmes règles métier (quota, disponibilité).
         return create_loan_for_user(
             db,
             target_user,
@@ -177,12 +186,15 @@ def borrow_for_user(payload: LoanCreateAdmin, db: Session = Depends(get_db)) -> 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (CopyNotAvailableError, LoanAlreadyOpenError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.get("/me", response_model=list[LoanRead])
 def my_loans(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[LoanRead]:
     """Mes emprunts en cours + historique."""
+    # Emprunts de l'utilisateur connecté (en cours + historique).
     return list_loans_for_user(db, current_user.id)
 @router.post(
     "/scan/borrow",
@@ -200,6 +212,7 @@ def borrow_via_scan(
     Reflète le workflow §3 du document "Consignes de Gestion du catalogue".
     """
     try:
+        # Scan : double scan carte lecteur + QR livre (prêt assisté au poste).
         return borrow_by_scan(db, payload.card_number, payload.qr_code)
     except UserNotFoundError as exc:
         raise HTTPException(
@@ -238,6 +251,7 @@ def return_via_scan(
     Reflète le workflow §4.
     """
     try:
+        # Scan : retour par QR Code de l'exemplaire (recherche l'emprunt actif).
         return return_by_scan(db, payload.qr_code)
     except CopyNotFoundError as exc:
         raise HTTPException(
@@ -258,6 +272,7 @@ def return_document(
 ) -> LoanRead:
     """Retourner un document (par son propriétaire, ou un bibliothécaire/admin au guichet)."""
     try:
+        # Retour : propriétaire ou personnel autorisé ; libère l'exemplaire.
         return return_loan(db, loan_id, current_user)
     except LoanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -273,5 +288,6 @@ def all_loans(
     db: Session = Depends(get_db),
 ) -> list[LoanRead]:
     """Tous les emprunts de la bibliothèque (bibliothécaire / admin)."""
+    # Liste tous les emprunts, filtre optionnel par statut.
     return list_all_loans(db, status_filter)
     

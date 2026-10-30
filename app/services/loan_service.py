@@ -25,34 +25,50 @@ from app.schemas.loan import LoanCreate
 
 
 class CopyNotFoundError(Exception):
+    """Exemplaire physique introuvable en base de données."""
+
     pass
 
 
 class CopyNotAvailableError(Exception):
+    """Exemplaire physique non disponible pour l'emprunt."""
+
     pass
 
 
 class DigitalResourceNotFoundError(Exception):
+    """Ressource numérique introuvable en base de données."""
+
     pass
 
 
 class LoanQuotaExceededError(Exception):
+    """Quota d'emprunts simultanés dépassé pour le rôle de l'utilisateur."""
+
     pass
 
 
 class LoanNotFoundError(Exception):
+    """Emprunt ou demande d'emprunt introuvable."""
+
     pass
 
 
 class LoanAlreadyReturnedError(Exception):
+    """Tentative de retour d'un emprunt déjà retourné ou non actif."""
+
     pass
 
 
 class NotLoanOwnerError(Exception):
+    """L'utilisateur n'est pas le propriétaire de l'emprunt ni un bibliothécaire."""
+
     pass
 
 
 class LoanNotPendingError(Exception):
+    """La demande d'emprunt n'est plus en attente de traitement."""
+
     pass
 
 
@@ -217,8 +233,8 @@ def create_loan(
             )
         target_book_id = resource.book_id
 
+    # Règle métier : interdit un emprunt/demande en double pour le même livre (anti-doublon).
     _ensure_no_open_loan_for_book(db, current_user.id, target_book_id)
-
     if copy is not None:
         # Une demande en attente reserve l'exemplaire : le stock disponible
         # diminue immediatement et l'exemplaire ne peut pas etre demande deux
@@ -258,6 +274,7 @@ def approve_loan(
     if user is None:
         raise LoanNotFoundError("Utilisateur de la demande introuvable.")
 
+    # Règle métier : vérification du quota d'emprunts actifs du membre avant approbation.
     limit = LOAN_LIMITS_BY_ROLE[user.role]
     if _count_open_loans(db, user.id, exclude_loan_id=loan.id) >= limit:
         raise LoanQuotaExceededError(
@@ -310,11 +327,11 @@ def reject_loan(
             f"Cette demande a deja ete traitee (statut : {loan.status.value})."
         )
 
+    # Règle métier : refus libère l'exemplaire réservé (retour au statut disponible).
     if loan.copy_id is not None:
         copy = db.get(Copy, loan.copy_id)
         if copy is not None and copy.status == CopyStatus.RESERVED:
             copy.status = CopyStatus.AVAILABLE
-
     loan.status = LoanStatus.REJECTED
     loan.decided_at = datetime.now(timezone.utc)
     loan.decision_note = note
